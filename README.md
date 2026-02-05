@@ -1,6 +1,6 @@
 # go-serverless-event-platform
 
-Das Projekt ist eine serverless Event-Sourcing-Plattform in Go, die Bestellungen verwaltet. HTTP-Requests werden vom Command Handler Lambda verarbeitet, Events im DynamoDB Event Store gespeichert und über EventBridge publiziert. Ein Projection Handler Lambda konsumiert die Events asynchron und erstellt Read Models in DynamoDB für schnelle Abfragen.
+Das Projekt ist eine serverless Event-Sourcing-Plattform in Go, die Bestellungen verwaltet. HTTP-Requests werden vom Command Handler Lambda verarbeitet, Events im DynamoDB Event Store gespeichert und über EventBridge publiziert. Ein Projection Handler Lambda konsumiert die Events asynchron und erstellt Read Models in DynamoDB für schnelle Abfragen. Die Architektur ist für hohe Event-Volumina optimiert mit Idempotenz auf mehreren Ebenen, Concurrency-Limits für Backpressure, strukturiertem Logging mit Payload-Redaction, CloudWatch-Metriken statt Info-Logs, Retriable/Non-Retriable Fehlerklassifizierung und Dead Letter Queues für fehlgeschlagene Events.
 
 ## Setup
 
