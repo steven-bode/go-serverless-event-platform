@@ -35,3 +35,5 @@ make test
 - `ORDERS_READ_TABLE` - DynamoDB Read Model Tabelle
 - `PROCESSED_EVENTS_TABLE` - DynamoDB Processed Events Tabelle
 - `EVENT_BUS_NAME` - EventBridge Bus Name
+- `LOG_LEVEL` - Log-Level (ERROR, INFO, WARN, DEBUG), Default: ERROR
+- `LOG_LEVEL` - Log-Level (ERROR, INFO, WARN, DEBUG), Default: ERROR
