@@ -1,0 +1,201 @@
+service: go-serverless-event-platform
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: provided.al2
+  architecture: x86_64
+  region: eu-central-1
+  stage: ${opt:stage, 'dev'}
+  environment:
+    EVENT_STORE_TABLE: ${self:custom.eventStoreTable}
+    ORDERS_READ_TABLE: ${self:custom.ordersReadTable}
+    PROCESSED_EVENTS_TABLE: ${self:custom.processedEventsTable}
+    EVENT_BUS_NAME: ${self:custom.eventBusName}
+    LOG_LEVEL: ERROR
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:Query
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.eventStoreTable}
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.eventStoreTable}/index/order_id-index
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.ordersReadTable}
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.processedEventsTable}
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - arn:aws:events:${self:provider.region}:*:event-bus/${self:custom.eventBusName}
+        - Effect: Allow
+          Action:
+            - cloudwatch:PutMetricData
+          Resource: "*"
+
+custom:
+  eventStoreTable: ${self:service}-event-store-${self:provider.stage}
+  ordersReadTable: ${self:service}-orders-read-${self:provider.stage}
+  processedEventsTable: ${self:service}-processed-events-${self:provider.stage}
+  eventBusName: app-bus-${self:provider.stage}
+
+functions:
+  commandHandler:
+    handler: bootstrap
+    package:
+      artifact: bin/command-handler.zip
+    events:
+      - httpApi:
+          path: /orders
+          method: post
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+          - dynamodb:GetItem
+          - dynamodb:Query
+        Resource:
+          - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.eventStoreTable}
+          - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.eventStoreTable}/index/order_id-index
+      - Effect: Allow
+        Action:
+          - events:PutEvents
+        Resource:
+          - arn:aws:events:${self:provider.region}:*:event-bus/${self:custom.eventBusName}
+      - Effect: Allow
+        Action:
+          - cloudwatch:PutMetricData
+        Resource: "*"
+
+  projectionHandler:
+    handler: bootstrap
+    package:
+      artifact: bin/projection-handler.zip
+    timeout: 60
+    reservedConcurrentExecutions: 10
+    deadLetter:
+      targetArn:
+        Fn::GetAtt: [ProjectionDLQ, Arn]
+    events:
+      - eventBridge:
+          eventBus: ${self:custom.eventBusName}
+          pattern:
+            source:
+              - app.orders
+            detail-type:
+              - OrderCreated
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+          - dynamodb:GetItem
+        Resource:
+          - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.ordersReadTable}
+          - arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.processedEventsTable}
+      - Effect: Allow
+        Action:
+          - cloudwatch:PutMetricData
+        Resource: "*"
+      - Effect: Allow
+        Action:
+          - sqs:SendMessage
+        Resource:
+          - Fn::GetAtt: [ProjectionDLQ, Arn]
+
+resources:
+  Resources:
+    EventStoreTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.eventStoreTable}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: event_id
+            AttributeType: S
+          - AttributeName: order_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: event_id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: order_id-index
+            KeySchema:
+              - AttributeName: order_id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    OrdersReadTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.ordersReadTable}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: order_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: order_id
+            KeyType: HASH
+
+    ProcessedEventsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.processedEventsTable}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: event_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: event_id
+            KeyType: HASH
+        TimeToLiveSpecification:
+          Enabled: true
+          AttributeName: ttl
+
+    ProjectionDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-projection-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600
+        ReceiveMessageWaitTimeSeconds: 20
+
+    EventBus:
+      Type: AWS::Events::EventBus
+      Properties:
+        Name: ${self:custom.eventBusName}
+
+  Outputs:
+    ApiGatewayEndpoint:
+      Description: API Gateway HTTP API endpoint
+      Value:
+        Fn::Join:
+          - ''
+          - - https://
+            - ${HttpApi}
+            - .execute-api.${self:provider.region}.amazonaws.com
+    EventStoreTableName:
+      Description: Event Store DynamoDB Table Name
+      Value: ${self:custom.eventStoreTable}
+    OrdersReadTableName:
+      Description: Orders Read Model DynamoDB Table Name
+      Value: ${self:custom.ordersReadTable}
+    ProcessedEventsTableName:
+      Description: Processed Events DynamoDB Table Name
+      Value: ${self:custom.processedEventsTable}
+    EventBusName:
+      Description: EventBridge Event Bus Name
+      Value: ${self:custom.eventBusName}

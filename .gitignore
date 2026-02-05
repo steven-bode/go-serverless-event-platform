@@ -1,0 +1,40 @@
+# Build artifacts
+bin/
+*.zip
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Serverless Framework
+.serverless/
+.serverless_plugins/
+
+# Go
+*.test
+*.out
+vendor/
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# AWS
+.aws-sam/
+
+# Documentation (keep README.md)
+*.md
+!README.md
